@@ -1,0 +1,16 @@
+{
+  "name": "samanvitha-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Samanvitha - Need-based community donation network matching donors with verified orphanages and old-age homes.",
+  "scripts": {
+    "dev": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "preview": "npm --prefix client run preview",
+    "server": "npm --prefix server start",
+    "server:dev": "npm --prefix server run dev",
+    "server:test": "npm --prefix server test",
+    "test": "npm --prefix server test",
+    "server:seed": "npm --prefix server run seed"
+  }
+}

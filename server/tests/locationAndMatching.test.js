@@ -142,7 +142,7 @@ describe('Delivery Feasibility Boundary Scores (0 km, 2 km, 50 km, beyond)', () 
 });
 
 describe('Missing Coordinates & Fallback Neutral Scoring', () => {
-  test('donation missing coordinates returns neutral score of 50 with "Distance unknown"', () => {
+  test('donation missing coordinates returns neutral score of 50 with "Distance unknown" in breakdown', () => {
     const donation = { quantity: 10, latitude: null, longitude: null };
     const need = { requiredQuantity: 10, latitude: 17.525, longitude: 78.324 };
 
@@ -150,10 +150,12 @@ describe('Missing Coordinates & Fallback Neutral Scoring', () => {
     expect(scoreData.components.deliveryFeasibility.score).toBe(50);
     expect(scoreData.components.deliveryFeasibility.distanceKm).toBeNull();
     expect(scoreData.components.deliveryFeasibility.distanceText).toBe('Distance unknown');
+    expect(scoreData.components.deliveryFeasibility.breakdown).toBe('Distance unknown');
+    expect(scoreData.components.deliveryFeasibility.weightedScore).toBe(7.5);
     expect(scoreData.finalScore).toBeGreaterThan(0);
   });
 
-  test('need missing coordinates returns neutral score of 50 with "Distance unknown"', () => {
+  test('need missing coordinates returns neutral score of 50 with "Distance unknown" in breakdown', () => {
     const donation = { quantity: 10, latitude: 17.448, longitude: 78.391 };
     const need = { requiredQuantity: 10, latitude: null, longitude: null };
 
@@ -161,6 +163,8 @@ describe('Missing Coordinates & Fallback Neutral Scoring', () => {
     expect(scoreData.components.deliveryFeasibility.score).toBe(50);
     expect(scoreData.components.deliveryFeasibility.distanceKm).toBeNull();
     expect(scoreData.components.deliveryFeasibility.distanceText).toBe('Distance unknown');
+    expect(scoreData.components.deliveryFeasibility.breakdown).toBe('Distance unknown');
+    expect(scoreData.components.deliveryFeasibility.weightedScore).toBe(7.5);
   });
 
   test('both missing coordinates returns neutral score of 50 without rejecting the pair', () => {
@@ -171,7 +175,53 @@ describe('Missing Coordinates & Fallback Neutral Scoring', () => {
     expect(scoreData.components.deliveryFeasibility.score).toBe(50);
     expect(scoreData.components.deliveryFeasibility.distanceKm).toBeNull();
     expect(scoreData.components.deliveryFeasibility.distanceText).toBe('Distance unknown');
+    expect(scoreData.components.deliveryFeasibility.breakdown).toBe('Distance unknown');
     expect(scoreData.finalScore).toBeGreaterThan(0);
+  });
+
+  test('different locality text strings with missing coordinates never reject the pair and yield neutral 50 with "Distance unknown" (no text matching)', () => {
+    const donation = { quantity: 10, location: 'Old City, Charminar, Hyderabad', latitude: null, longitude: null };
+    const need = { requiredQuantity: 10, address: 'HITEC City, Madhapur, Hyderabad', latitude: null, longitude: null };
+
+    const scoreData = calculateMatchScore(donation, need);
+    expect(scoreData.components.deliveryFeasibility.score).toBe(50);
+    expect(scoreData.components.deliveryFeasibility.distanceKm).toBeNull();
+    expect(scoreData.components.deliveryFeasibility.distanceText).toBe('Distance unknown');
+    expect(scoreData.components.deliveryFeasibility.breakdown).toBe('Distance unknown');
+    expect(scoreData.finalScore).toBeGreaterThan(0);
+  });
+
+  test('handles undefined or non-numeric coordinates gracefully with neutral 50 and "Distance unknown"', () => {
+    const donation = { quantity: 10, latitude: 'invalid', longitude: NaN };
+    const need = { requiredQuantity: 10 };
+
+    const scoreData = calculateMatchScore(donation, need);
+    expect(scoreData.components.deliveryFeasibility.score).toBe(50);
+    expect(scoreData.components.deliveryFeasibility.distanceKm).toBeNull();
+    expect(scoreData.components.deliveryFeasibility.distanceText).toBe('Distance unknown');
+    expect(scoreData.components.deliveryFeasibility.breakdown).toBe('Distance unknown');
+  });
+
+  test('preserves exact weights: Urgency (35%), Demand (30%), Time (20%), Delivery Feasibility (15%)', () => {
+    const donation = { quantity: 10, latitude: null, longitude: null };
+    const need = {
+      requiredQuantity: 10,
+      usableStock: 0,
+      reservedQuantity: 0,
+      urgency: 'Critical', // 100 * 0.35 = 35.0
+      deadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 100 * 0.20 = 20.0
+    };
+    // Demand: 10/10 => 100 * 0.30 = 30.0
+    // Feasibility: neutral 50 * 0.15 = 7.5
+    // Total = 35 + 30 + 20 + 7.5 = 92.5
+    const scoreData = calculateMatchScore(donation, need);
+    expect(scoreData.components.urgency.weight).toBe(0.35);
+    expect(scoreData.components.unfulfilledDemand.weight).toBe(0.30);
+    expect(scoreData.components.timeSensitivity.weight).toBe(0.20);
+    expect(scoreData.components.deliveryFeasibility.weight).toBe(0.15);
+    expect(scoreData.components.deliveryFeasibility.score).toBe(50);
+    expect(scoreData.components.deliveryFeasibility.weightedScore).toBe(7.5);
+    expect(scoreData.finalScore).toBe(92.5);
   });
 });
 

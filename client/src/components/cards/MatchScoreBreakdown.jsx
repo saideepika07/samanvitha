@@ -40,11 +40,11 @@ export function MatchScoreBreakdown({ matchResult, className = '' }) {
       data: components.deliveryFeasibility,
       icon: Truck,
       barColor: 'bg-charcoal-700',
-      description: components.deliveryFeasibility.distanceText
-        ? `${components.deliveryFeasibility.distanceText} • ${components.deliveryFeasibility.donorLocation || 'Donor'} ↔ ${components.deliveryFeasibility.institutionLocation || 'Home'}`
-        : components.deliveryFeasibility.distanceKm != null
-        ? `${components.deliveryFeasibility.distanceKm} km • ${components.deliveryFeasibility.donorLocation || 'Donor'} ↔ ${components.deliveryFeasibility.institutionLocation || 'Home'}`
-        : `Distance unknown • ${components.deliveryFeasibility.donorLocation || 'Donor'} ↔ ${components.deliveryFeasibility.institutionLocation || 'Home'}`,
+      description:
+        components.deliveryFeasibility.distanceText === 'Distance unknown' ||
+        components.deliveryFeasibility.distanceKm == null
+          ? 'Distance unknown'
+          : `${components.deliveryFeasibility.distanceText || `${components.deliveryFeasibility.distanceKm} km`} • ${components.deliveryFeasibility.donorLocation || 'Donor'} ↔ ${components.deliveryFeasibility.institutionLocation || 'Home'}`,
     },
   ];
 

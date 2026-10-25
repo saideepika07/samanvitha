@@ -143,18 +143,31 @@ export function calculateMatchScore(donation, need, options = {}) {
     !isNaN(Number(donation.latitude)) &&
     !isNaN(Number(donation.longitude));
 
+  const instLat =
+    need?.latitude != null
+      ? need.latitude
+      : need?.institutionId?.latitude != null
+      ? need.institutionId.latitude
+      : need?.institution?.latitude;
+  const instLng =
+    need?.longitude != null
+      ? need.longitude
+      : need?.institutionId?.longitude != null
+      ? need.institutionId.longitude
+      : need?.institution?.longitude;
+
   const hasNeedCoords =
-    need?.latitude != null &&
-    need?.longitude != null &&
-    !isNaN(Number(need.latitude)) &&
-    !isNaN(Number(need.longitude));
+    instLat != null &&
+    instLng != null &&
+    !isNaN(Number(instLat)) &&
+    !isNaN(Number(instLng));
 
   if (hasDonationCoords && hasNeedCoords) {
     distanceKm = calculateHaversineDistance(
       Number(donation.latitude),
       Number(donation.longitude),
-      Number(need.latitude),
-      Number(need.longitude)
+      Number(instLat),
+      Number(instLng)
     );
   }
 
@@ -200,6 +213,7 @@ export function calculateMatchScore(donation, need, options = {}) {
         institutionLocation: need?.address || need?.location,
         distanceKm: deliveryFeas.distanceKm,
         distanceText: deliveryFeas.distanceText,
+        breakdown: deliveryFeas.distanceText,
       },
     },
   };

@@ -210,6 +210,7 @@ function calculateMatchScore(donation, need, options = {}) {
         weightedScore: Math.round(feasibilityScore * weights.deliveryFeasibility * 10) / 10,
         distanceKm: feasibilityData.distanceKm,
         distanceText: feasibilityData.distanceText,
+        breakdown: feasibilityData.distanceText,
         donorLocation: donation?.location,
         institutionLocation: need?.address,
       },

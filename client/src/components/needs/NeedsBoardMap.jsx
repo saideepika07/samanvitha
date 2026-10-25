@@ -1,13 +1,41 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef, useMemo, useState } from 'react';
 import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+import 'leaflet.markercluster';
 import { setupLeafletIcons } from '../common/LocationPicker.jsx';
-import { Building, Package, MapPin } from 'lucide-react';
+import { Building, MapPin, Layers } from 'lucide-react';
+
+const TILE_LAYERS = {
+  map: {
+    name: 'Map',
+    url:
+      import.meta.env.VITE_MAP_TILE_URL ||
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    options: {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+      detectRetina: true,
+    },
+  },
+  satellite: {
+    name: 'Satellite',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    options: {
+      attribution:
+        'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+      maxZoom: 19,
+      detectRetina: true,
+    },
+  },
+};
 
 export function NeedsBoardMap({ needs = [] }) {
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
-  const markersRef = useRef([]);
+  const tileLayerRef = useRef(null);
+  const clusterGroupRef = useRef(null);
+
+  const [activeLayer, setActiveLayer] = useState('map');
 
   // Aggregate open needs by approved institution
   const { institutionsWithCoords, institutionsWithoutCoordsCount } = useMemo(() => {
@@ -15,7 +43,7 @@ export function NeedsBoardMap({ needs = [] }) {
     let withoutCoords = 0;
 
     needs.forEach((need) => {
-      // Must be open deficit
+      // Must have open remaining need
       const remaining = Number(need.remainingNeed ?? need.quantity ?? 0);
       if (remaining <= 0) return;
 
@@ -28,7 +56,6 @@ export function NeedsBoardMap({ needs = [] }) {
       const hasCoords = lat != null && lng != null && !isNaN(lat) && !isNaN(lng);
 
       if (!hasCoords) {
-        // Track unmapped institutions
         if (!map.has(`unmapped_${instId}`)) {
           map.set(`unmapped_${instId}`, true);
           withoutCoords++;
@@ -43,16 +70,11 @@ export function NeedsBoardMap({ needs = [] }) {
           type: need.institutionType || 'Care Facility',
           latitude: lat,
           longitude: lng,
-          openNeeds: [],
+          openNeedsCount: 0,
         });
       }
 
-      map.get(instId).openNeeds.push({
-        itemType: need.itemType,
-        remainingNeed: remaining,
-        unit: need.unit || 'units',
-        urgency: need.urgency || 'Medium',
-      });
+      map.get(instId).openNeedsCount += 1;
     });
 
     const instList = Array.from(map.values()).filter((item) => item.latitude != null);
@@ -62,69 +84,99 @@ export function NeedsBoardMap({ needs = [] }) {
     };
   }, [needs]);
 
+  // Initialize Map
   useEffect(() => {
     setupLeafletIcons();
 
     if (!mapContainerRef.current) return;
     if (mapInstanceRef.current) return;
 
-    const defaultCenter = [17.3850, 78.4867]; // Hyderabad center
+    const defaultCenter = [17.385, 78.4867]; // Hyderabad center
     const map = L.map(mapContainerRef.current, {
       center: defaultCenter,
       zoom: 11,
+      maxZoom: 19,
       scrollWheelZoom: false,
     });
     mapInstanceRef.current = map;
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
-      maxZoom: 19,
-    }).addTo(map);
+    // Tile layer setup with maxZoom 19 and detectRetina
+    const initialConfig = TILE_LAYERS.map;
+    const tileLayer = L.tileLayer(initialConfig.url, initialConfig.options).addTo(map);
+    tileLayerRef.current = tileLayer;
 
+    // Cluster group setup
+    const clusterGroup = L.markerClusterGroup({
+      maxClusterRadius: 45,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      zoomToBoundsOnClick: true,
+      iconCreateFunction: (cluster) => {
+        const count = cluster.getChildCount();
+        return L.divIcon({
+          html: `<div>${count}</div>`,
+          className: 'custom-cluster-marker',
+          iconSize: L.point(40, 40),
+        });
+      },
+    });
+    map.addLayer(clusterGroup);
+    clusterGroupRef.current = clusterGroup;
+
+    // Handle container resize
+    const handleResize = () => {
+      map.invalidateSize();
+    };
+    window.addEventListener('resize', handleResize);
+
+    // Initial sizing invalidate
     const timer = setTimeout(() => {
       map.invalidateSize();
     }, 250);
 
     return () => {
       clearTimeout(timer);
+      window.removeEventListener('resize', handleResize);
       map.remove();
       mapInstanceRef.current = null;
-      markersRef.current = [];
+      clusterGroupRef.current = null;
+      tileLayerRef.current = null;
     };
   }, []);
 
-  // Update markers when institutions list changes
-  useEffect(() => {
+  // Handle Layer Switch (Map / Satellite)
+  const handleLayerSwitch = (layerKey) => {
+    if (activeLayer === layerKey) return;
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    // Remove existing markers
-    markersRef.current.forEach((m) => m.remove());
-    markersRef.current = [];
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+    }
+
+    const config = TILE_LAYERS[layerKey];
+    const newTileLayer = L.tileLayer(config.url, config.options).addTo(map);
+    tileLayerRef.current = newTileLayer;
+    setActiveLayer(layerKey);
+  };
+
+  // Update clustered markers when institutions data changes
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const clusterGroup = clusterGroupRef.current;
+    if (!map || !clusterGroup) return;
+
+    clusterGroup.clearLayers();
 
     if (institutionsWithCoords.length === 0) return;
 
-    const bounds = L.latLngBounds();
-
     institutionsWithCoords.forEach((inst) => {
-      const openNeedsCount = inst.openNeeds.length;
+      const openNeedsCount = inst.openNeedsCount;
       const formattedType = inst.type.replace('_', ' ');
 
-      // Privacy: Only public institution name, type, and open needs count. No private data!
-      const itemsListHtml = inst.openNeeds
-        .slice(0, 3)
-        .map(
-          (n) =>
-            `<li style="margin-bottom: 2px;">${escapeHtml(n.itemType)} (${n.remainingNeed} ${escapeHtml(n.unit)})</li>`
-        )
-        .join('');
-      const moreHtml =
-        openNeedsCount > 3
-          ? `<li style="color: #6b7280; font-style: italic;">+ ${openNeedsCount - 3} more open needs</li>`
-          : '';
-
+      // Requirement 6: Popups with name, type and open needs count ONLY
       const popupHtml = `
-        <div style="font-family: inherit; min-width: 200px; padding: 4px;">
+        <div style="font-family: inherit; min-width: 180px; padding: 4px;">
           <h3 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 700; color: #1e293b; line-height: 1.2;">
             ${escapeHtml(inst.name)}
           </h3>
@@ -132,30 +184,24 @@ export function NeedsBoardMap({ needs = [] }) {
             ${escapeHtml(formattedType)}
           </div>
           <div style="border-top: 1px solid #e2e8f0; padding-top: 6px; margin-top: 2px;">
-            <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 600; color: #047857;">
+            <p style="margin: 0; font-size: 12px; font-weight: 600; color: #36432D;">
               ${openNeedsCount} Open ${openNeedsCount === 1 ? 'Deficit' : 'Deficits'}
             </p>
-            <ul style="margin: 0; padding-left: 14px; font-size: 11px; color: #334155; line-height: 1.4;">
-              ${itemsListHtml}
-              ${moreHtml}
-            </ul>
           </div>
         </div>
       `;
 
-      const marker = L.marker([inst.latitude, inst.longitude])
-        .addTo(map)
-        .bindPopup(popupHtml);
-
-      markersRef.current.push(marker);
-      bounds.extend([inst.latitude, inst.longitude]);
+      const marker = L.marker([inst.latitude, inst.longitude]).bindPopup(popupHtml);
+      clusterGroup.addLayer(marker);
     });
 
-    if (institutionsWithCoords.length > 0) {
-      if (institutionsWithCoords.length === 1) {
-        map.setView([institutionsWithCoords[0].latitude, institutionsWithCoords[0].longitude], 13);
-      } else {
-        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+    // Fit bounds to markers
+    if (institutionsWithCoords.length === 1) {
+      map.setView([institutionsWithCoords[0].latitude, institutionsWithCoords[0].longitude], 14);
+    } else {
+      const bounds = clusterGroup.getBounds();
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
       }
     }
   }, [institutionsWithCoords]);
@@ -179,25 +225,57 @@ export function NeedsBoardMap({ needs = [] }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-xs font-semibold text-sage-800 bg-sage-50 px-3 py-1.5 rounded-xl border border-sage-200">
-            <Building className="w-3.5 h-3.5 text-sage-600" />
-            <span>{institutionsWithCoords.length} Approved Care Facilities Pinned</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Layer Switcher (Map / Satellite) */}
+            <div className="inline-flex rounded-lg border border-sand-300 p-0.5 bg-white shadow-soft-sm">
+              <button
+                type="button"
+                onClick={() => handleLayerSwitch('map')}
+                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer min-h-[36px] sm:min-h-[30px] flex items-center gap-1 ${
+                  activeLayer === 'map'
+                    ? 'bg-sage-600 text-white shadow-xs'
+                    : 'text-charcoal-600 hover:text-charcoal-900'
+                }`}
+                aria-pressed={activeLayer === 'map'}
+              >
+                <span>Map</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleLayerSwitch('satellite')}
+                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer min-h-[36px] sm:min-h-[30px] flex items-center gap-1 ${
+                  activeLayer === 'satellite'
+                    ? 'bg-sage-600 text-white shadow-xs'
+                    : 'text-charcoal-600 hover:text-charcoal-900'
+                }`}
+                aria-pressed={activeLayer === 'satellite'}
+              >
+                <Layers className="w-3 h-3" />
+                <span>Satellite</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-sage-800 bg-sage-50 px-3 py-1.5 rounded-xl border border-sage-200">
+              <Building className="w-3.5 h-3.5 text-sage-600" />
+              <span>{institutionsWithCoords.length} Care Facilities Pinned</span>
+            </div>
           </div>
         </div>
 
-        {/* Leaflet Map */}
+        {/* Leaflet Map with Marker Clustering */}
         <div
           ref={mapContainerRef}
-          className="w-full h-[320px] sm:h-[420px] md:h-[460px] z-0"
-          style={{ minHeight: '300px' }}
+          className="w-full h-[360px] sm:h-[440px] md:h-[500px] z-0"
+          style={{ minHeight: '360px' }}
         />
       </div>
 
-      {/* Info notice about coordinates */}
+      {/* Info Notice about unmapped facilities */}
       {institutionsWithoutCoordsCount > 0 && (
         <div className="p-3.5 bg-sand-100/70 border border-sand-200 rounded-2xl text-xs text-charcoal-600 flex items-center justify-between gap-2">
           <span>
-            <strong>Note:</strong> {institutionsWithoutCoordsCount} verified care {institutionsWithoutCoordsCount === 1 ? 'facility has' : 'facilities have'} not yet dropped a map pin. All active needs remain visible in Grid View.
+            <strong>Note:</strong> {institutionsWithoutCoordsCount} verified care{' '}
+            {institutionsWithoutCoordsCount === 1 ? 'facility has' : 'facilities have'} not yet dropped a map pin. All active needs remain visible in Grid View.
           </span>
         </div>
       )}

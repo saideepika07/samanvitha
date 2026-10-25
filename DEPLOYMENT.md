@@ -136,3 +136,28 @@ Before deploying, verify the following environment settings:
 | `ADMIN_PASSWORD` | *Strong unique password* | Used for initial administrative provisioning. |
 | `SMTP_HOST` & credentials | Real SMTP credentials | Required for delivering password reset emails. |
 | `RESERVATION_EXPIRY_HOURS` | `72` | Automatically releases unfulfilled reservations after 72 hours. |
+| `VITE_MAP_TILE_URL` | *Custom tile URL (Optional)* | Custom raster/vector tile URL (e.g. MapTiler, Stadia Maps) for high production traffic. |
+
+---
+
+## 6. Map Tile & Geocoding Service Configuration (OSM & Nominatim Limits)
+
+The application includes map viewing and place search features via `LocationPicker` and `NeedsBoardMap`. In development and standard deployments, it connects directly to community-provided OpenStreetMap tile servers and the public Nominatim search API.
+
+### Public Service Limitations:
+- **Light & Development Use Only**: The standard OpenStreetMap and Nominatim endpoints are provided on volunteer infrastructure and intended strictly for lightweight prototype and testing workloads.
+- **Rate Limits & Fair-Use Policy**:
+  - Nominatim enforces a strict cap of **1 request per second**, prohibits batch geocoding, and requires descriptive identification.
+  - Heavy concurrent tile requests from production web users will result in HTTP 429/403 throttling or IP bans by the OpenStreetMap Operations team.
+
+### Production Recommendations:
+For live production deployments with continuous traffic:
+1. Register for a dedicated map tile provider offering generous free tiers with API keys:
+   - **MapTiler** (100,000 free tile requests/month)
+   - **Stadia Maps** (200,000 free tile requests/month)
+2. Configure the tile endpoint in your client deployment settings (e.g., Vercel environment variables):
+   ```ini
+   VITE_MAP_TILE_URL=https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=YOUR_MAPTILER_API_KEY
+   ```
+3. When `VITE_MAP_TILE_URL` is configured, both `LocationPicker` and `NeedsBoardMap` will stream tiles from your authenticated production provider. When omitted, they seamlessly fall back to standard OpenStreetMap tiles with `maxZoom: 19` and retina support.
+

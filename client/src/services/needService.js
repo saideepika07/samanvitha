@@ -179,6 +179,17 @@ export const needService = {
         return { success: false, error: 'Need not found.' };
       }
 
+      if (updateData.requiredQuantity !== undefined) {
+        const req = Number(updateData.requiredQuantity);
+        const resQty = Number(updateData.reservedQuantity ?? needs[index].reservedQuantity ?? 0);
+        if (req < resQty) {
+          return {
+            success: false,
+            error: `Required quantity cannot be lower than the quantity already reserved (${resQty})`,
+          };
+        }
+      }
+
       const updated = {
         ...needs[index],
         ...updateData,

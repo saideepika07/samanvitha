@@ -12,7 +12,8 @@
     "seed:sample": "node src/seed/seed.js --with-sample",
     "seed:demo": "node src/seed/seed.js --demo",
     "create-admin": "node src/seed/createAdmin.js",
-    "cleanup:data": "node scripts/cleanupTestData.js"
+    "cleanup:data": "node scripts/cleanupTestData.js",
+    "check:inconsistent-needs": "node scripts/reconcileInconsistentNeeds.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

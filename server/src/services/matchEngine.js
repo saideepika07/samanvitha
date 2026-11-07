@@ -101,14 +101,20 @@ function calculateMatchScore(donation, need, options = {}) {
   const urgencyScore = urgencyConfig.score;
 
   // 2. Unfulfilled Demand Component (0-100, 30% weight)
+  // Uses min(donation available quantity, remaining) against remaining
   const remainingNeed = Math.max(
     0,
     (need?.requiredQuantity || 0) - (need?.usableStock || 0) - (need?.reservedQuantity || 0)
   );
 
+  const donationAvailable = donation?.availableQuantity != null
+    ? donation.availableQuantity
+    : Math.max(0, (donation?.quantity || 0) - (donation?.reservedQuantity || 0));
+
   let demandScore = 0;
-  if (remainingNeed > 0 && (donation?.quantity || 0) > 0) {
-    const fulfillmentRatio = donation.quantity / remainingNeed;
+  if (remainingNeed > 0 && donationAvailable > 0) {
+    const covered = Math.min(donationAvailable, remainingNeed);
+    const fulfillmentRatio = covered / remainingNeed;
     if (fulfillmentRatio >= 1) {
       demandScore = 100;
     } else {
@@ -196,7 +202,8 @@ function calculateMatchScore(donation, need, options = {}) {
         weight: weights.unfulfilledDemand,
         weightedScore: Math.round(demandScore * weights.unfulfilledDemand * 10) / 10,
         remainingNeed,
-        offeredQuantity: donation?.quantity || 0,
+        offeredQuantity: donationAvailable,
+        availableQuantity: donationAvailable,
       },
       timeSensitivity: {
         score: timeScore,
@@ -239,11 +246,25 @@ async function getSuggestionsForDonation(donationId) {
     institutionId: { $in: approvedIds },
     category: donation.category,
     status: { $in: ['Open'] },
+    $expr: {
+      $gt: [
+        {
+          $subtract: [
+            '$requiredQuantity',
+            { $add: [{ $ifNull: ['$usableStock', 0] }, { $ifNull: ['$reservedQuantity', 0] }] }
+          ]
+        },
+        0
+      ]
+    }
   }).populate('institutionId', 'name institutionType address latitude longitude');
 
   const matches = candidateNeeds
     .map((need) => {
-      const remainingNeed = need.remainingNeed;
+      const remainingNeed = Math.max(
+        0,
+        (need.requiredQuantity || 0) - (need.usableStock || 0) - (need.reservedQuantity || 0)
+      );
       if (remainingNeed <= 0) return null;
 
       // Ensure institution coordinates are propagated if not directly set on need

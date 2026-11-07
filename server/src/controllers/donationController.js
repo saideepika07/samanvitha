@@ -182,12 +182,26 @@ const createDonation = asyncHandler(async (req, res) => {
     }
   }
 
+  const totalQty = Number(quantity);
+  const needRemaining = matchedNeed
+    ? Math.max(
+        0,
+        (matchedNeed.requiredQuantity || 0) -
+          (matchedNeed.usableStock || 0) -
+          (matchedNeed.reservedQuantity || 0)
+      )
+    : 0;
+
+  const reserveQty = matchedNeed ? Math.min(totalQty, needRemaining) : 0;
+  const unreservedQty = matchedNeed ? totalQty - reserveQty : 0;
+
   const donation = new Donation({
     donorId: req.user._id,
     donorName: req.user.name,
     category,
     itemType: (itemType || '').trim(),
-    quantity: Number(quantity),
+    quantity: matchedNeed ? reserveQty : totalQty,
+    reservedQuantity: matchedNeed ? reserveQty : 0,
     unit: (unit || '').trim(),
     condition: condition || 'New or gently used in clean, usable condition',
     location: (location || req.user.address || 'Hyderabad').trim(),
@@ -206,11 +220,70 @@ const createDonation = asyncHandler(async (req, res) => {
 
   await donation.save();
 
+  let unreservedDonation = null;
+  if (matchedNeed && unreservedQty > 0) {
+    unreservedDonation = new Donation({
+      donorId: req.user._id,
+      donorName: req.user.name,
+      category,
+      itemType: (itemType || '').trim(),
+      quantity: unreservedQty,
+      reservedQuantity: 0,
+      unit: (unit || '').trim(),
+      condition: condition || 'New or gently used in clean, usable condition',
+      location: (location || req.user.address || 'Hyderabad').trim(),
+      latitude: parsedLat,
+      longitude: parsedLng,
+      deadline: deadline || null,
+      notes: (notes || '').trim(),
+      image: processedImage || null,
+      status: DONATION_STATUS.LISTED,
+      matchedNeedId: null,
+      matchedInstitutionId: null,
+      matchedInstitutionName: null,
+      reservedAt: null,
+      isSample: false,
+    });
+    await unreservedDonation.save();
+  }
+
   // Deduplication & Inventory Reservation: Atomically increment reserved quantity on the need
   if (matchedNeed) {
-    await Need.findByIdAndUpdate(matchedNeed._id, {
-      $inc: { reservedQuantity: donation.quantity },
-    });
+    const updatedNeed = await Need.findOneAndUpdate(
+      {
+        _id: matchedNeed._id,
+        $expr: {
+          $gte: [
+            {
+              $subtract: [
+                '$requiredQuantity',
+                { $add: [{ $ifNull: ['$usableStock', 0] }, { $ifNull: ['$reservedQuantity', 0] }] }
+              ]
+            },
+            reserveQty
+          ]
+        }
+      },
+      { $inc: { reservedQuantity: reserveQty } },
+      { new: true }
+    );
+
+    if (!updatedNeed) {
+      await Donation.findByIdAndDelete(donation._id);
+      if (unreservedDonation) await Donation.findByIdAndDelete(unreservedDonation._id);
+      return res.status(400).json({
+        success: false,
+        error: 'This need has already been completely fulfilled or reserved.',
+      });
+    }
+
+    if (
+      updatedNeed.status === 'Open' &&
+      (updatedNeed.usableStock || 0) + (updatedNeed.reservedQuantity || 0) >= updatedNeed.requiredQuantity
+    ) {
+      updatedNeed.status = 'Fulfilled';
+      await Need.findByIdAndUpdate(updatedNeed._id, { $set: { status: 'Fulfilled' } });
+    }
   }
 
   res.status(201).json({
@@ -282,6 +355,7 @@ const updateDonationStatus = asyncHandler(async (req, res) => {
     }
 
     // Atomic conditional transition from active reserved state to Cancelled
+    const qtyToRelease = donation.reservedQuantity || donation.quantity;
     const cancelledReserved = await Donation.findOneAndUpdate(
       {
         _id: donation._id,
@@ -296,6 +370,7 @@ const updateDonationStatus = asyncHandler(async (req, res) => {
       {
         $set: {
           status: DONATION_STATUS.CANCELLED,
+          reservedQuantity: 0,
           cancelReason: cancelReason || notes || 'Cancelled by donor.',
         },
       },
@@ -305,8 +380,16 @@ const updateDonationStatus = asyncHandler(async (req, res) => {
     if (cancelledReserved) {
       if (cancelledReserved.matchedNeedId) {
         await Need.findByIdAndUpdate(cancelledReserved.matchedNeedId, {
-          $inc: { reservedQuantity: -cancelledReserved.quantity },
+          $inc: { reservedQuantity: -qtyToRelease },
         });
+        const checkNeed = await Need.findById(cancelledReserved.matchedNeedId);
+        if (
+          checkNeed &&
+          checkNeed.status === 'Fulfilled' &&
+          (checkNeed.usableStock || 0) + (checkNeed.reservedQuantity || 0) < checkNeed.requiredQuantity
+        ) {
+          await Need.findByIdAndUpdate(checkNeed._id, { $set: { status: 'Open' } });
+        }
       }
       return res.status(200).json({
         success: true,
@@ -360,12 +443,21 @@ const updateDonationStatus = asyncHandler(async (req, res) => {
     previousStatus !== DONATION_STATUS.COMPLETED
   ) {
     if (donation.matchedNeedId) {
+      const qtyToAcknowledge = donation.reservedQuantity || donation.quantity;
       await Need.findByIdAndUpdate(donation.matchedNeedId, {
         $inc: {
-          reservedQuantity: -donation.quantity,
-          usableStock: donation.quantity,
+          reservedQuantity: -qtyToAcknowledge,
+          usableStock: qtyToAcknowledge,
         },
       });
+      const checkNeed = await Need.findById(donation.matchedNeedId);
+      if (
+        checkNeed &&
+        checkNeed.status === 'Open' &&
+        (checkNeed.usableStock || 0) + (checkNeed.reservedQuantity || 0) >= checkNeed.requiredQuantity
+      ) {
+        await Need.findByIdAndUpdate(checkNeed._id, { $set: { status: 'Fulfilled' } });
+      }
     }
     if (!donation.receivedAt) {
       donation.receivedAt = new Date();
@@ -431,6 +523,8 @@ const cancelDonation = asyncHandler(async (req, res) => {
     });
   }
 
+  const qtyToRelease = donation.reservedQuantity || donation.quantity;
+
   // Atomic conditional transition from an active reserved state to CANCELLED:
   // Exactly ONE concurrent / duplicate call matches and transitions status.
   const cancelledReservedDonation = await Donation.findOneAndUpdate(
@@ -447,6 +541,7 @@ const cancelDonation = asyncHandler(async (req, res) => {
     {
       $set: {
         status: DONATION_STATUS.CANCELLED,
+        reservedQuantity: 0,
         cancelReason: reason || 'Cancelled by donor.',
       },
     },
@@ -457,8 +552,16 @@ const cancelDonation = asyncHandler(async (req, res) => {
     // Only the winning call that actually transitioned the status decrements Need reservedQuantity!
     if (cancelledReservedDonation.matchedNeedId) {
       await Need.findByIdAndUpdate(cancelledReservedDonation.matchedNeedId, {
-        $inc: { reservedQuantity: -cancelledReservedDonation.quantity },
+        $inc: { reservedQuantity: -qtyToRelease },
       });
+      const checkNeed = await Need.findById(cancelledReservedDonation.matchedNeedId);
+      if (
+        checkNeed &&
+        checkNeed.status === 'Fulfilled' &&
+        (checkNeed.usableStock || 0) + (checkNeed.reservedQuantity || 0) < checkNeed.requiredQuantity
+      ) {
+        await Need.findByIdAndUpdate(checkNeed._id, { $set: { status: 'Open' } });
+      }
     }
     return res.status(200).json({
       success: true,

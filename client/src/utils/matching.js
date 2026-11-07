@@ -104,9 +104,14 @@ export function calculateMatchScore(donation, need, options = {}) {
     (need?.requiredQuantity || 0) - (need?.usableStock || 0) - (need?.reservedQuantity || 0)
   );
 
+  const donationAvailable = donation?.availableQuantity != null
+    ? donation.availableQuantity
+    : Math.max(0, (donation?.quantity || 0) - (donation?.reservedQuantity || 0));
+
   let demandScore = 0;
-  if (remainingNeed > 0 && donation?.quantity > 0) {
-    const fulfillmentRatio = donation.quantity / remainingNeed;
+  if (remainingNeed > 0 && donationAvailable > 0) {
+    const covered = Math.min(donationAvailable, remainingNeed);
+    const fulfillmentRatio = covered / remainingNeed;
     if (fulfillmentRatio >= 1) {
       demandScore = 100;
     } else {
@@ -197,7 +202,8 @@ export function calculateMatchScore(donation, need, options = {}) {
         weight: weights.unfulfilledDemand,
         weightedScore: Math.round(demandScore * weights.unfulfilledDemand * 10) / 10,
         remainingNeed,
-        offeredQuantity: donation?.quantity || 0,
+        offeredQuantity: donationAvailable,
+        availableQuantity: donationAvailable,
       },
       timeSensitivity: {
         score: timeScore,
@@ -228,4 +234,60 @@ export function calculateRemainingNeed(required, usableStock = 0, reservedQuanti
   const stock = Number(usableStock) || 0;
   const reserved = Number(reservedQuantity) || 0;
   return Math.max(0, req - stock - reserved);
+}
+
+/**
+ * Checks if a need is in an over-allocated state:
+ * reservedQuantity > max(0, requiredQuantity - usableStock)
+ */
+export function isNeedOverAllocated(required, usableStock = 0, reservedQuantity = 0) {
+  const req = Number(required) || 0;
+  const stock = Number(usableStock) || 0;
+  const reserved = Number(reservedQuantity) || 0;
+  return reserved > Math.max(0, req - stock);
+}
+
+/**
+ * Checks if a need is in a surplus state:
+ * usableStock >= requiredQuantity && reservedQuantity === 0
+ */
+export function isNeedSurplus(required, usableStock = 0, reservedQuantity = 0) {
+  const req = Number(required) || 0;
+  const stock = Number(usableStock) || 0;
+  const reserved = Number(reservedQuantity) || 0;
+  return stock >= req && reserved === 0;
+}
+
+/**
+ * Derives badge status info for a need:
+ * - "Surplus" (neutral) when usableStock >= requiredQuantity and reservedQuantity is 0
+ * - "Over-allocated" (warning) only when reservedQuantity > max(0, requiredQuantity - usableStock)
+ * - "Fulfilled" when remaining is 0 and nothing is over
+ * - "Open" otherwise
+ */
+export function getNeedBadgeInfo(need) {
+  const req = Number(need?.requiredQuantity) || 0;
+  const stock = Number(need?.usableStock) || 0;
+  const reserved = Number(need?.reservedQuantity) || 0;
+  const remaining = Math.max(0, req - stock - reserved);
+
+  const isOverAllocated = reserved > Math.max(0, req - stock);
+  const isSurplus = stock >= req && reserved === 0;
+  const isFulfilled = remaining === 0 && !isOverAllocated && !isSurplus;
+
+  let badgeType = 'open';
+  if (isOverAllocated) badgeType = 'over-allocated';
+  else if (isSurplus) badgeType = 'surplus';
+  else if (isFulfilled) badgeType = 'fulfilled';
+
+  return {
+    requiredQuantity: req,
+    usableStock: stock,
+    reservedQuantity: reserved,
+    remainingNeed: remaining,
+    isOverAllocated,
+    isSurplus,
+    isFulfilled,
+    badgeType,
+  };
 }

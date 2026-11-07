@@ -45,6 +45,8 @@ async function expireDonationRecord(donation) {
     ? DONATION_STATUS.EXPIRED
     : DONATION_STATUS.LISTED;
 
+  const qtyToRelease = donation.reservedQuantity || donation.quantity;
+
   // ATOMIC CONDITIONAL UPDATE:
   // Only transitions if the donation is still in RESERVED or MATCHED status.
   const expiredDonation = await Donation.findOneAndUpdate(
@@ -55,6 +57,7 @@ async function expireDonationRecord(donation) {
     {
       $set: {
         status: targetStatus,
+        reservedQuantity: 0,
         matchedNeedId: null,
         matchedInstitutionId: null,
         matchedInstitutionName: null,
@@ -72,8 +75,16 @@ async function expireDonationRecord(donation) {
   // Decrement the Need's reservedQuantity exactly once
   if (donation.matchedNeedId) {
     await Need.findByIdAndUpdate(donation.matchedNeedId, {
-      $inc: { reservedQuantity: -donation.quantity },
+      $inc: { reservedQuantity: -qtyToRelease },
     });
+    const checkNeed = await Need.findById(donation.matchedNeedId);
+    if (
+      checkNeed &&
+      checkNeed.status === 'Fulfilled' &&
+      (checkNeed.usableStock || 0) + (checkNeed.reservedQuantity || 0) < checkNeed.requiredQuantity
+    ) {
+      await Need.findByIdAndUpdate(checkNeed._id, { $set: { status: 'Open' } });
+    }
   }
 
   // Dispatch in-app notification to the donor

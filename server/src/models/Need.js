@@ -114,6 +114,12 @@ const needSchema = new mongoose.Schema(
           0,
           (ret.requiredQuantity || 0) - (ret.usableStock || 0) - (ret.reservedQuantity || 0)
         );
+        ret.isOverAllocated =
+          (ret.reservedQuantity || 0) >
+          Math.max(0, (ret.requiredQuantity || 0) - (ret.usableStock || 0));
+        ret.isSurplus =
+          (ret.usableStock || 0) >= (ret.requiredQuantity || 0) &&
+          (ret.reservedQuantity || 0) === 0;
         delete ret._id;
         delete ret.__v;
         return ret;
@@ -131,6 +137,22 @@ needSchema.virtual('remainingNeed').get(function () {
     0,
     (this.requiredQuantity || 0) - (this.usableStock || 0) - (this.reservedQuantity || 0)
   );
+});
+
+// Virtual check for over-allocation: reservedQuantity > max(0, requiredQuantity - usableStock)
+needSchema.virtual('isOverAllocated').get(function () {
+  const req = this.requiredQuantity || 0;
+  const stock = this.usableStock || 0;
+  const reserved = this.reservedQuantity || 0;
+  return reserved > Math.max(0, req - stock);
+});
+
+// Virtual check for surplus: usableStock >= requiredQuantity && reservedQuantity === 0
+needSchema.virtual('isSurplus').get(function () {
+  const req = this.requiredQuantity || 0;
+  const stock = this.usableStock || 0;
+  const reserved = this.reservedQuantity || 0;
+  return stock >= req && reserved === 0;
 });
 
 // Pre-save hook: auto-sync status if fulfilled

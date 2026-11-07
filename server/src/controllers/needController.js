@@ -233,7 +233,23 @@ const updateNeed = asyncHandler(async (req, res) => {
 
   if (category !== undefined) need.category = category;
   if (itemType !== undefined) need.itemType = itemType.trim();
-  if (requiredQuantity !== undefined) need.requiredQuantity = Number(requiredQuantity);
+
+  // Rule 1: Reject requiredQuantity < reservedQuantity with a clear message
+  if (requiredQuantity !== undefined) {
+    const newRequired = Number(requiredQuantity);
+    const currentReserved = reservedQuantity !== undefined
+      ? Number(reservedQuantity)
+      : (need.reservedQuantity || 0);
+
+    if (newRequired < currentReserved) {
+      return res.status(400).json({
+        success: false,
+        error: `Required quantity cannot be lower than the quantity already reserved (${currentReserved})`,
+      });
+    }
+    need.requiredQuantity = newRequired;
+  }
+
   if (usableStock !== undefined) need.usableStock = Number(usableStock);
   if (reservedQuantity !== undefined) need.reservedQuantity = Number(reservedQuantity);
   if (unit !== undefined) need.unit = unit.trim();

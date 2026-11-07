@@ -37,6 +37,7 @@ export function MatchSuggestionsPage() {
   const [errorDonations, setErrorDonations] = useState(null);
   const [errorMatches, setErrorMatches] = useState(null);
   const [reservingId, setReservingId] = useState(null);
+  const [confirmReservation, setConfirmReservation] = useState(null);
 
   // Load donor's donations to populate selector
   const fetchDonations = async () => {
@@ -90,14 +91,44 @@ export function MatchSuggestionsPage() {
 
   const activeDonation = donations.find((d) => d.id === selectedDonationId);
 
-  const handleReserve = async (needId) => {
+  const handleOpenReserveModal = (match) => {
+    const donationAvailable = activeDonation?.availableQuantity != null
+      ? activeDonation.availableQuantity
+      : Math.max(0, (activeDonation?.quantity || 0) - (activeDonation?.reservedQuantity || 0));
+
+    const needRemaining = match.components?.unfulfilledDemand?.remainingNeed ??
+      Math.max(
+        0,
+        (match.need?.requiredQuantity || 0) -
+          (match.need?.usableStock || 0) -
+          (match.need?.reservedQuantity || 0)
+      );
+
+    const reserveQty = Math.min(donationAvailable, needRemaining);
+    const stayAvailable = Math.max(0, donationAvailable - reserveQty);
+    const unit = activeDonation?.unit || match.need?.unit || 'units';
+
+    setConfirmReservation({
+      match,
+      needId: match.need.id,
+      institutionName: match.need.institutionName,
+      itemType: match.need.itemType,
+      reserveQty,
+      donationAvailable,
+      stayAvailable,
+      unit,
+    });
+  };
+
+  const handleReserve = async (needId, quantity) => {
     if (!selectedDonationId || !needId) return;
 
     setReservingId(needId);
     try {
-      const result = await matchService.reserveMatch(selectedDonationId, needId);
+      const result = await matchService.reserveMatch(selectedDonationId, needId, quantity);
       if (result.success) {
         toast.success('Match confirmed & reserved! The institution has been notified.');
+        setConfirmReservation(null);
         // Refresh donations list
         const updatedDonations = await donationService.getDonorDonations(user?.id);
         setDonations(updatedDonations);
@@ -268,7 +299,7 @@ export function MatchSuggestionsPage() {
                         variant="primary"
                         size="md"
                         loading={reservingId === m.need.id}
-                        onClick={() => handleReserve(m.need.id)}
+                        onClick={() => handleOpenReserveModal(m)}
                         icon={Heart}
                         className="w-full sm:w-auto shadow-soft-sm"
                       >
@@ -310,6 +341,72 @@ export function MatchSuggestionsPage() {
         </div>
       )}
       </>
+      )}
+
+      {/* Reserve Confirmation Modal (Requirement 2) */}
+      {confirmReservation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-charcoal-900/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl border border-sand-300 shadow-soft-lg max-w-md w-full p-6 sm:p-8 space-y-6">
+            <div className="flex items-start justify-between gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-sage-100 text-sage-700 flex items-center justify-center flex-shrink-0">
+                <Heart className="w-5 h-5" />
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmReservation(null)}
+                className="text-charcoal-400 hover:text-charcoal-700 p-1 rounded-lg text-lg leading-none cursor-pointer"
+                aria-label="Close modal"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="font-serif text-2xl font-bold text-charcoal-900">
+                Confirm Match Reservation
+              </h3>
+              <p className="text-xs text-charcoal-500">
+                Reserving for <strong>{confirmReservation.institutionName}</strong> ({confirmReservation.itemType})
+              </p>
+            </div>
+
+            {/* Allocation Quantity Callout */}
+            <div className="p-4 bg-sand-50 rounded-2xl border border-sand-200 space-y-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-charcoal-500 block">
+                Reservation Allocation
+              </span>
+              <p className="font-serif text-base sm:text-lg font-bold text-charcoal-900">
+                {confirmReservation.reserveQty} of {confirmReservation.donationAvailable} {confirmReservation.unit} will be reserved; {confirmReservation.stayAvailable} stay available
+              </p>
+              <p className="text-xs text-charcoal-600 leading-relaxed">
+                {confirmReservation.stayAvailable > 0
+                  ? `To prevent over-allocation, exactly ${confirmReservation.reserveQty} ${confirmReservation.unit} will be reserved for this care home. Your remaining ${confirmReservation.stayAvailable} ${confirmReservation.unit} remain Listed and available for other needs.`
+                  : `This allocates all ${confirmReservation.reserveQty} ${confirmReservation.unit} to fulfill this deficit.`}
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => setConfirmReservation(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                loading={reservingId === confirmReservation.needId}
+                onClick={() =>
+                  handleReserve(confirmReservation.needId, confirmReservation.reserveQty)
+                }
+                icon={Heart}
+              >
+                Confirm Reservation
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

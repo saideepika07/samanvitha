@@ -125,26 +125,52 @@ const reserveMatch = asyncHandler(async (req, res) => {
   }
 
   // Check remaining deficit
-  if (need.remainingNeed <= 0) {
+  const needRemaining = Math.max(
+    0,
+    (need.requiredQuantity || 0) - (need.usableStock || 0) - (need.reservedQuantity || 0)
+  );
+
+  if (needRemaining <= 0) {
     return res.status(400).json({
       success: false,
       error: 'This need has already been completely fulfilled or reserved by other donors.',
     });
   }
 
-  const requestedQty = quantity !== undefined ? Number(quantity) : donation.quantity;
-  if (isNaN(requestedQty) || requestedQty <= 0) {
+  // Calculate available donation quantity
+  const donationAvailable = donation.availableQuantity != null
+    ? donation.availableQuantity
+    : Math.max(0, (donation.quantity || 0) - (donation.reservedQuantity || 0));
+
+  if (donationAvailable <= 0) {
     return res.status(400).json({
       success: false,
-      error: 'Requested quantity must be a positive number.',
+      error: 'This donation has no available quantity remaining.',
     });
   }
 
-  if (requestedQty > donation.quantity) {
-    return res.status(400).json({
-      success: false,
-      error: `Requested quantity (${requestedQty}) exceeds available donation quantity (${donation.quantity}).`,
-    });
+  // Reserve rule: never make usableStock + reservedQuantity exceed requiredQuantity.
+  // Reserve only min(donation available quantity, need remaining).
+  let requestedQty;
+  if (quantity !== undefined && quantity !== null && quantity !== '') {
+    const parsed = Number(quantity);
+    if (isNaN(parsed) || parsed <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Requested quantity must be a positive number.',
+      });
+    }
+
+    if (parsed > donationAvailable) {
+      return res.status(400).json({
+        success: false,
+        error: `Requested quantity (${parsed}) exceeds available donation quantity (${donationAvailable}).`,
+      });
+    }
+
+    requestedQty = Math.min(parsed, needRemaining);
+  } else {
+    requestedQty = Math.min(donationAvailable, needRemaining);
   }
 
   // Partial reservation: Donation has more units than requested
@@ -155,7 +181,7 @@ const reserveMatch = asyncHandler(async (req, res) => {
       {
         _id: donation._id,
         status: { $in: [DONATION_STATUS.LISTED, DONATION_STATUS.MATCHED] },
-        quantity: { $gte: requestedQty },
+        quantity: { $gte: requestedQty + 1 },
       },
       {
         $inc: { quantity: -requestedQty },
@@ -170,7 +196,7 @@ const reserveMatch = asyncHandler(async (req, res) => {
       });
     }
 
-    // 2. Create the reserved donation slice and increment Need reservedQuantity
+    // 2. Create the reserved donation slice and atomically increment Need reservedQuantity
     let reservedSlice;
     try {
       reservedSlice = await Donation.create({
@@ -179,11 +205,15 @@ const reserveMatch = asyncHandler(async (req, res) => {
         category: donation.category,
         itemType: donation.itemType,
         quantity: requestedQty,
+        reservedQuantity: requestedQty,
         unit: donation.unit,
         condition: donation.condition,
         location: donation.location,
+        latitude: donation.latitude,
+        longitude: donation.longitude,
         deadline: donation.deadline,
         notes: donation.notes,
+        image: donation.image,
         status: DONATION_STATUS.RESERVED,
         matchedNeedId: need._id,
         matchedInstitutionId: institution._id,
@@ -192,14 +222,46 @@ const reserveMatch = asyncHandler(async (req, res) => {
         isSample: donation.isSample || false,
       });
 
-      const updatedNeed = await Need.findByIdAndUpdate(
-        need._id,
+      // Atomic conditional update on Need: guarantees required - usable - reserved >= requestedQty
+      const updatedNeed = await Need.findOneAndUpdate(
+        {
+          _id: need._id,
+          $expr: {
+            $gte: [
+              {
+                $subtract: [
+                  '$requiredQuantity',
+                  { $add: [{ $ifNull: ['$usableStock', 0] }, { $ifNull: ['$reservedQuantity', 0] }] }
+                ]
+              },
+              requestedQty
+            ]
+          }
+        },
         { $inc: { reservedQuantity: requestedQty } },
         { new: true }
       );
 
       if (!updatedNeed) {
-        throw new Error('Target need record could not be updated.');
+        // Compensation rollback
+        await Donation.findByIdAndUpdate(donation._id, {
+          $inc: { quantity: requestedQty },
+        });
+        if (reservedSlice?._id) {
+          await Donation.findByIdAndDelete(reservedSlice._id);
+        }
+        return res.status(400).json({
+          success: false,
+          error: 'This need has already been completely fulfilled or reserved by other donors.',
+        });
+      }
+
+      if (
+        updatedNeed.status === 'Open' &&
+        (updatedNeed.usableStock || 0) + (updatedNeed.reservedQuantity || 0) >= updatedNeed.requiredQuantity
+      ) {
+        updatedNeed.status = 'Fulfilled';
+        await Need.findByIdAndUpdate(updatedNeed._id, { $set: { status: 'Fulfilled' } });
       }
 
       return res.status(200).json({
@@ -228,11 +290,12 @@ const reserveMatch = asyncHandler(async (req, res) => {
       {
         _id: donation._id,
         status: { $in: [DONATION_STATUS.LISTED, DONATION_STATUS.MATCHED] },
-        quantity: { $gte: requestedQty },
+        quantity: requestedQty,
       },
       {
         $set: {
           status: DONATION_STATUS.RESERVED,
+          reservedQuantity: requestedQty,
           matchedNeedId: need._id,
           matchedInstitutionId: institution._id,
           matchedInstitutionName: institution.name,
@@ -251,19 +314,57 @@ const reserveMatch = asyncHandler(async (req, res) => {
 
     let updatedNeed;
     try {
-      updatedNeed = await Need.findByIdAndUpdate(
-        need._id,
+      // Atomic conditional update on Need: guarantees required - usable - reserved >= requestedQty
+      updatedNeed = await Need.findOneAndUpdate(
+        {
+          _id: need._id,
+          $expr: {
+            $gte: [
+              {
+                $subtract: [
+                  '$requiredQuantity',
+                  { $add: [{ $ifNull: ['$usableStock', 0] }, { $ifNull: ['$reservedQuantity', 0] }] }
+                ]
+              },
+              requestedQty
+            ]
+          }
+        },
         { $inc: { reservedQuantity: requestedQty } },
         { new: true }
       );
+
       if (!updatedNeed) {
-        throw new Error('Target need record could not be updated.');
+        // Compensation rollback
+        await Donation.findByIdAndUpdate(donation._id, {
+          $set: {
+            status: donation.status,
+            reservedQuantity: 0,
+            matchedNeedId: null,
+            matchedInstitutionId: null,
+            matchedInstitutionName: null,
+            reservedAt: null,
+          },
+        });
+        return res.status(400).json({
+          success: false,
+          error: 'This need has already been completely fulfilled or reserved by other donors.',
+        });
+      }
+
+      if (
+        updatedNeed.status === 'Open' &&
+        (updatedNeed.usableStock || 0) + (updatedNeed.reservedQuantity || 0) >= updatedNeed.requiredQuantity
+      ) {
+        updatedNeed.status = 'Fulfilled';
+        await Need.findByIdAndUpdate(updatedNeed._id, { $set: { status: 'Fulfilled' } });
       }
     } catch (err) {
       // COMPENSATION ROLLBACK: Revert donation back to original Listed status
       await Donation.findByIdAndUpdate(donation._id, {
         $set: {
           status: donation.status,
+          reservedQuantity: 0,
           matchedNeedId: null,
           matchedInstitutionId: null,
           matchedInstitutionName: null,

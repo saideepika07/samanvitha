@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.js';
 import needService from '../../services/needService.js';
+import StatusBadge from '../../components/common/StatusBadge.jsx';
 import SampleDataBadge from '../../components/common/SampleDataBadge.jsx';
 import Button from '../../components/common/Button.jsx';
 import { SkeletonCard } from '../../components/common/Skeleton.jsx';
 import ErrorState from '../../components/common/ErrorState.jsx';
+import { getNeedBadgeInfo } from '../../utils/matching.js';
 import {
   ResponsiveContainer,
   BarChart,
@@ -198,6 +200,80 @@ export function InstitutionDashboardPage() {
                 <Bar dataKey="remaining" name="Remaining Deficit" fill="#C87D55" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Needs Fulfillment Status Overview */}
+      {!loading && needs.length > 0 && (
+        <div className="p-6 bg-white rounded-3xl border border-sand-200 shadow-soft-sm space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-sand-100">
+            <div>
+              <h3 className="font-serif text-lg font-bold text-charcoal-900">
+                Needs Inventory &amp; Standing Overview
+              </h3>
+              <p className="text-xs text-charcoal-500">
+                Live fulfillment status, usable stock, and reserve allocations
+              </p>
+            </div>
+            <Link to="/institution/my-needs">
+              <Button variant="ghost" size="sm" icon={ArrowRight}>
+                View All Needs
+              </Button>
+            </Link>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-charcoal-800">
+              <thead className="bg-sand-50/80 text-[11px] font-semibold text-charcoal-500 uppercase tracking-wider border-b border-sand-200">
+                <tr>
+                  <th scope="col" className="px-4 py-3">Need Item</th>
+                  <th scope="col" className="px-4 py-3">Urgency</th>
+                  <th scope="col" className="px-4 py-3">Required</th>
+                  <th scope="col" className="px-4 py-3">Usable Stock</th>
+                  <th scope="col" className="px-4 py-3">Reserved</th>
+                  <th scope="col" className="px-4 py-3">Standing Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-sand-200/70">
+                {needs.slice(0, 5).map((need) => {
+                  const badge = getNeedBadgeInfo(need);
+                  return (
+                    <tr key={need.id || need._id} className="hover:bg-sand-50/50">
+                      <td className="px-4 py-3">
+                        <span className="font-semibold text-charcoal-900">{need.itemType}</span>
+                        <span className="text-xs text-charcoal-500 block">{need.category}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={need.urgency} type="urgency" />
+                      </td>
+                      <td className="px-4 py-3 font-mono font-medium">
+                        {need.requiredQuantity} {need.unit}
+                      </td>
+                      <td className="px-4 py-3 font-mono">
+                        {need.usableStock || 0} {need.unit}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-terracotta-700">
+                        {need.reservedQuantity || 0} {need.unit}
+                      </td>
+                      <td className="px-4 py-3">
+                        {badge.isOverAllocated ? (
+                          <StatusBadge status="Over-allocated" type="need" />
+                        ) : badge.isSurplus ? (
+                          <StatusBadge status="Surplus" type="need" />
+                        ) : badge.isFulfilled ? (
+                          <StatusBadge status="Fulfilled" type="need" />
+                        ) : (
+                          <span className="font-mono text-xs font-bold text-charcoal-800">
+                            {badge.remainingNeed} {need.unit} remaining
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

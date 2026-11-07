@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Calculator,
   ShieldAlert,
+  CheckCircle2,
 } from 'lucide-react';
 
 export function CreateEditNeedPage() {
@@ -43,6 +44,7 @@ export function CreateEditNeedPage() {
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(isEditing);
   const [error, setError] = useState(null);
+  const [showMetConfirmation, setShowMetConfirmation] = useState(false);
 
   // Set default deadline 21 days in future for new needs
   useEffect(() => {
@@ -122,6 +124,11 @@ export function CreateEditNeedPage() {
     const req = Number(formData.requiredQuantity);
     if (!formData.requiredQuantity || isNaN(req) || req <= 0) {
       newErrors.requiredQuantity = 'Required quantity must be a positive number greater than 0';
+    } else if (isEditing) {
+      const currentReserved = Number(formData.reservedQuantity || 0);
+      if (req < currentReserved) {
+        newErrors.requiredQuantity = `Required quantity cannot be lower than the quantity already reserved (${currentReserved})`;
+      }
     }
 
     const stock = Number(formData.usableStock);
@@ -144,10 +151,7 @@ export function CreateEditNeedPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!validate()) return;
-
+  const executeSave = async () => {
     setSubmitting(true);
     try {
       const payload = {
@@ -187,6 +191,32 @@ export function CreateEditNeedPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!validate()) return;
+
+    if (isEditing) {
+      const req = Number(formData.requiredQuantity);
+      const stock = Number(formData.usableStock || 0);
+      const resQty = Number(formData.reservedQuantity || 0);
+
+      // Rule 1: Reject requiredQuantity < reservedQuantity
+      if (req < resQty) {
+        toast.error(`Required quantity cannot be lower than the quantity already reserved (${resQty})`);
+        return;
+      }
+
+      // Rule 2: If new requiredQuantity < usableStock + reservedQuantity but not lower than reservedQuantity,
+      // prompt for confirmation in the UI ("This need will be treated as already met")
+      if (req < stock + resQty) {
+        setShowMetConfirmation(true);
+        return;
+      }
+    }
+
+    await executeSave();
   };
 
   const currentCategoryObj = CATEGORIES.find((c) => c.label === formData.category) || CATEGORIES[0];
@@ -414,6 +444,61 @@ export function CreateEditNeedPage() {
           </Button>
         </div>
       </form>
+
+      {/* Confirmation Modal: Requirement 2 ("This need will be treated as already met") */}
+      {showMetConfirmation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-charcoal-900/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl border border-sand-300 shadow-soft-lg max-w-md w-full p-6 sm:p-8 space-y-6">
+            <div className="flex items-start justify-between gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-sage-100 text-sage-700 flex items-center justify-center flex-shrink-0">
+                <CheckCircle2 className="w-5 h-5 text-sage-600" />
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMetConfirmation(false)}
+                className="text-charcoal-400 hover:text-charcoal-700 p-1 rounded-lg text-lg leading-none cursor-pointer"
+                aria-label="Close modal"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="font-serif text-2xl font-bold text-charcoal-900">
+                Confirm Need Adjustment
+              </h3>
+              <p className="text-sm font-semibold text-charcoal-800">
+                This need will be treated as already met
+              </p>
+              <p className="text-xs text-charcoal-500 leading-relaxed">
+                The new required quantity ({formData.requiredQuantity} {formData.unit}) is lower than the sum of usable stock ({formData.usableStock}) and reserved quantity ({formData.reservedQuantity}). The remaining deficit will be 0 and the need will transition to Fulfilled.
+              </p>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-3">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowMetConfirmation(false)}
+                disabled={submitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="accent"
+                size="sm"
+                loading={submitting}
+                onClick={async () => {
+                  setShowMetConfirmation(false);
+                  await executeSave();
+                }}
+              >
+                Confirm &amp; Save
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

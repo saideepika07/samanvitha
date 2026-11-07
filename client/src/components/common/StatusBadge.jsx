@@ -54,6 +54,47 @@ export function StatusBadge({ status, type = 'donation', className = '' }) {
     );
   }
 
+  if (type === 'need' || status === 'Over-allocated' || status === 'Surplus' || status === 'Fulfilled') {
+    if (status === 'Over-allocated') {
+      return (
+        <span
+          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border bg-amber-50 text-amber-900 border-amber-300 shadow-soft-sm ${className}`}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-600" aria-hidden="true" />
+          Over-allocated
+        </span>
+      );
+    }
+    if (status === 'Surplus') {
+      return (
+        <span
+          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border bg-sand-100 text-charcoal-700 border-sand-300 ${className}`}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-charcoal-400" aria-hidden="true" />
+          Surplus
+        </span>
+      );
+    }
+    if (status === 'Fulfilled') {
+      return (
+        <span
+          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border bg-sage-50 text-sage-800 border-sage-200 ${className}`}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-sage-600" aria-hidden="true" />
+          Fulfilled
+        </span>
+      );
+    }
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border bg-sand-100 text-charcoal-700 border-sand-300 ${className}`}
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-charcoal-500" aria-hidden="true" />
+        {status}
+      </span>
+    );
+  }
+
   // Default: Donation lifecycle status badge
   const style = STATUS_BADGE_STYLES[status] || 'bg-sand-100 text-charcoal-700 border-sand-200';
 

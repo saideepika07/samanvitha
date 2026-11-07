@@ -35,6 +35,11 @@ const donationSchema = new mongoose.Schema(
       required: [true, 'Quantity is required.'],
       min: [1, 'Quantity must be at least 1.'],
     },
+    reservedQuantity: {
+      type: Number,
+      default: 0,
+      min: [0, 'Reserved quantity cannot be negative.'],
+    },
     unit: {
       type: String,
       required: [true, 'Unit of measurement is required.'],
@@ -130,6 +135,10 @@ const donationSchema = new mongoose.Schema(
       virtuals: true,
       transform: (doc, ret) => {
         ret.id = ret._id.toString();
+        ret.availableQuantity =
+          ret.status === DONATION_STATUS.LISTED || ret.status === DONATION_STATUS.MATCHED
+            ? Math.max(0, (ret.quantity || 0) - (ret.reservedQuantity || 0))
+            : 0;
         delete ret._id;
         delete ret.__v;
         return ret;
@@ -150,6 +159,14 @@ donationSchema.pre('save', function (next) {
     this.longitude = Math.round(Number(this.longitude) * 100) / 100;
   }
   next();
+});
+
+// Available quantity virtual for listed & unreserved amounts
+donationSchema.virtual('availableQuantity').get(function () {
+  if (this.status === DONATION_STATUS.LISTED || this.status === DONATION_STATUS.MATCHED) {
+    return Math.max(0, (this.quantity || 0) - (this.reservedQuantity || 0));
+  }
+  return 0;
 });
 
 // Expiry timestamp virtual for active reservations (computed from reservedAt + RESERVATION_EXPIRY_HOURS)

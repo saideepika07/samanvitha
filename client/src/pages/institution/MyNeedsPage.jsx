@@ -4,6 +4,7 @@ import { useAuth } from '../../hooks/useAuth.js';
 import { useToast } from '../../hooks/useToast.js';
 import needService from '../../services/needService.js';
 import { CATEGORIES } from '../../config/categories.js';
+import { getNeedBadgeInfo } from '../../utils/matching.js';
 import StatusBadge from '../../components/common/StatusBadge.jsx';
 import SampleDataBadge from '../../components/common/SampleDataBadge.jsx';
 import Button from '../../components/common/Button.jsx';
@@ -19,6 +20,7 @@ import {
   Calendar,
   Layers,
   X,
+  AlertTriangle,
 } from 'lucide-react';
 
 export function MyNeedsPage() {
@@ -182,11 +184,21 @@ export function MyNeedsPage() {
           {/* Mobile Cards (Visible below md: 360px, 390px, 768px portrait) */}
           <div className="md:hidden space-y-3">
             {filteredNeeds.map((need) => {
-              const isFulfilled = need.remainingNeed === 0;
+              const {
+                requiredQuantity: required,
+                usableStock: stock,
+                reservedQuantity: reserved,
+                remainingNeed,
+                isOverAllocated,
+                isSurplus,
+                isFulfilled,
+              } = getNeedBadgeInfo(need);
               return (
                 <div
                   key={need.id}
-                  className="bg-white rounded-2xl border border-sand-200 p-4 shadow-soft-sm space-y-3"
+                  className={`bg-white rounded-2xl border p-4 shadow-soft-sm space-y-3 ${
+                    isOverAllocated ? 'border-amber-300 bg-amber-50/20' : 'border-sand-200'
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -228,13 +240,21 @@ export function MyNeedsPage() {
                     </div>
                     <div>
                       <span className="text-charcoal-400 block text-[11px]">Remaining Deficit</span>
-                      {isFulfilled ? (
+                      {isOverAllocated ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-900 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-300 mt-0.5">
+                          <AlertTriangle className="w-3 h-3 text-amber-600" /> Over-allocated
+                        </span>
+                      ) : isSurplus ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal-700 bg-sand-100 px-2 py-0.5 rounded-md border border-sand-300 mt-0.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-charcoal-400" /> Surplus
+                        </span>
+                      ) : isFulfilled ? (
                         <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-sage-800 bg-sage-50 px-2 py-0.5 rounded-md border border-sage-200 mt-0.5">
                           <CheckCircle2 className="w-3 h-3 text-sage-600" /> Fulfilled
                         </span>
                       ) : (
                         <span className="font-mono font-bold text-charcoal-900 text-xs">
-                          {need.remainingNeed} {need.unit}
+                          {remainingNeed} {need.unit}
                         </span>
                       )}
                     </div>
@@ -274,10 +294,23 @@ export function MyNeedsPage() {
                 </thead>
                 <tbody className="divide-y divide-sand-200/70">
                   {filteredNeeds.map((need) => {
-                    const isFulfilled = need.remainingNeed === 0;
+                    const {
+                      requiredQuantity: required,
+                      usableStock: stock,
+                      reservedQuantity: reserved,
+                      remainingNeed,
+                      isOverAllocated,
+                      isSurplus,
+                      isFulfilled,
+                    } = getNeedBadgeInfo(need);
 
                     return (
-                      <tr key={need.id} className="hover:bg-sand-50/60 transition-colors">
+                      <tr
+                        key={need.id}
+                        className={`transition-colors ${
+                          isOverAllocated ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'hover:bg-sand-50/60'
+                        }`}
+                      >
                       <td className="px-6 py-4">
                         <div>
                           <div className="flex items-center gap-1.5">
@@ -319,14 +352,30 @@ export function MyNeedsPage() {
                       </td>
 
                       <td className="px-6 py-4">
-                        {isFulfilled ? (
+                        {isOverAllocated ? (
+                          <span
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-900 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-300"
+                            title={`Over-allocated: reserved (${reserved}) exceeds remaining deficit`}
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                            Over-allocated
+                          </span>
+                        ) : isSurplus ? (
+                          <span
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-charcoal-700 bg-sand-100 px-2.5 py-1 rounded-full border border-sand-300"
+                            title={`Surplus: usable stock (${stock}) meets or exceeds required (${required})`}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-charcoal-400" />
+                            Surplus
+                          </span>
+                        ) : isFulfilled ? (
                           <span className="inline-flex items-center gap-1 text-xs font-semibold text-sage-800 bg-sage-50 px-2.5 py-0.5 rounded-full border border-sage-200">
                             <CheckCircle2 className="w-3.5 h-3.5 text-sage-600" />
                             Fulfilled
                           </span>
                         ) : (
                           <span className="font-mono font-bold text-charcoal-900 text-sm">
-                            {need.remainingNeed} {need.unit}
+                            {remainingNeed} {need.unit}
                           </span>
                         )}
                       </td>

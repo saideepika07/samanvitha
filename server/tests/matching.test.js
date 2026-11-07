@@ -455,9 +455,9 @@ describe('Reservation Concurrency, Atomic Guards, Compensation & Release Invaria
       status: 'Open',
     });
 
-    // Mock a DB failure during Step 2 (Need.findByIdAndUpdate)
+    // Mock a DB failure during Step 2 (Need.findOneAndUpdate)
     const spy = jest
-      .spyOn(Need, 'findByIdAndUpdate')
+      .spyOn(Need, 'findOneAndUpdate')
       .mockRejectedValueOnce(new Error('Simulated network failure on Need document write'));
 
     const res = await request(app)

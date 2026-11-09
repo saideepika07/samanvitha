@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.js';
-import { useToast } from '../../hooks/useToast.js';
+import { useToast, useServerWaking } from '../../hooks/useToast.js';
 import donationService from '../../services/donationService.js';
 import { CATEGORIES } from '../../config/categories.js';
 import { Button } from '../../components/common/Button.jsx';
@@ -15,6 +15,7 @@ import { PackagePlus, Sparkles, ArrowRight, ShieldCheck, Heart } from 'lucide-re
 export function CreateDonationPage() {
   const { user } = useAuth();
   const toast = useToast();
+  const isServerWaking = useServerWaking();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -343,12 +344,19 @@ export function CreateDonationPage() {
             variant="primary"
             size="lg"
             loading={submitting}
+            disabled={submitting}
             icon={PackagePlus}
             className="w-full sm:w-auto px-8"
           >
             Publish Donation & Find Matches
           </Button>
         </div>
+        {submitting && isServerWaking && (
+          <p className="text-xs text-charcoal-600 bg-sand-100/90 py-2.5 px-3 rounded-xl border border-sand-200 mt-2 text-center flex items-center justify-center gap-2 animate-fade-in">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+            The server is waking up (free hosting). This can take up to a minute, please wait.
+          </p>
+        )}
       </form>
     </div>
   );

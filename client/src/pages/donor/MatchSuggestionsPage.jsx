@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.js';
-import { useToast } from '../../hooks/useToast.js';
+import { useToast, useServerWaking } from '../../hooks/useToast.js';
 import donationService from '../../services/donationService.js';
 import matchService from '../../services/matchService.js';
 import MatchScoreBreakdown from '../../components/cards/MatchScoreBreakdown.jsx';
@@ -25,6 +25,7 @@ import { formatReservationExpiry } from '../../utils/dateUtils.js';
 export function MatchSuggestionsPage() {
   const { user } = useAuth();
   const toast = useToast();
+  const isServerWaking = useServerWaking();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const queryDonationId = searchParams.get('donationId');
@@ -389,6 +390,7 @@ export function MatchSuggestionsPage() {
               <Button
                 variant="secondary"
                 size="md"
+                disabled={reservingId != null}
                 onClick={() => setConfirmReservation(null)}
               >
                 Cancel
@@ -397,6 +399,7 @@ export function MatchSuggestionsPage() {
                 variant="primary"
                 size="md"
                 loading={reservingId === confirmReservation.needId}
+                disabled={reservingId != null}
                 onClick={() =>
                   handleReserve(confirmReservation.needId, confirmReservation.reserveQty)
                 }
@@ -405,6 +408,12 @@ export function MatchSuggestionsPage() {
                 Confirm Reservation
               </Button>
             </div>
+            {reservingId && isServerWaking && (
+              <p className="text-xs text-charcoal-600 bg-sand-100/90 py-2.5 px-3 rounded-xl border border-sand-200 mt-2 text-center flex items-center justify-center gap-2 animate-fade-in">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                The server is waking up (free hosting). This can take up to a minute, please wait.
+              </p>
+            )}
           </div>
         </div>
       )}

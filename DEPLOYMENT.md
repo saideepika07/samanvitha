@@ -161,3 +161,28 @@ For live production deployments with continuous traffic:
    ```
 3. When `VITE_MAP_TILE_URL` is configured, both `LocationPicker` and `NeedsBoardMap` will stream tiles from your authenticated production provider. When omitted, they seamlessly fall back to standard OpenStreetMap tiles with `maxZoom: 19` and retina support.
 
+---
+
+## 7. Render Free-Tier Cold Starts & Client Resilience Architecture
+
+When deploying the backend on Render's free tier (`https://samanvitha.onrender.com`), instances automatically spin down after 15 minutes of inactivity. When a new user request arrives, Render initiates a container cold start taking ~50–60 seconds while starting Node.js and connecting to MongoDB Atlas.
+
+### Client-Side Mitigation Rules Implemented in `client/src/services/api.js`:
+
+1. **Wake-Up Ping (`GET /api/health`)**:
+   - Dispatched strictly once per page load on client initialization (`pingServerHealth()` in `client/src/App.jsx`).
+   - Runs in the background, completely silent (result ignored).
+   - Never polls or runs recurring intervals, avoiding unnecessary resource usage.
+2. **70-Second Global Timeout**:
+   - Axios client `timeout` is raised from 15,000 ms to `70000` ms, accommodating the full cold-start boot sequence.
+3. **5-Second Dynamic Waiting Notice**:
+   - If an in-flight API call takes longer than 5 seconds, a gentle notice is shown in the toast area and form actions:  
+     `"The server is waking up (free hosting). This can take up to a minute, please wait."`
+   - Automatically unmounts as soon as the response is received or an error is thrown.
+4. **Non-Idempotent Mutation Protection**:
+   - Automatic retry is **strictly limited to GET requests** (`!config._retry && method === 'get'`).
+   - Mutations (`POST /auth/register`, `POST /matches/reserve`, `POST /donations/:id/cancel`, `PUT /donations/:id/status`, etc.) are never retried automatically to prevent duplicate side effects.
+5. **No Raw Timeout Errors**:
+   - Raw technical errors like `"timeout of 15000ms exceeded"` are intercepted and transformed into user-friendly guidance.
+   - For user registration: `"The request took too long. Your account may have been created. Try logging in with the same email, or register again after a minute."`
+

@@ -1,10 +1,20 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { CheckCircle2, AlertTriangle, AlertCircle, Info, X } from 'lucide-react';
 
 const ToastContext = createContext(null);
 
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
+  const [serverWaking, setServerWaking] = useState(false);
+
+  // Listen to server waking events from the shared API client
+  useEffect(() => {
+    const handleWaking = (e) => {
+      setServerWaking(Boolean(e.detail?.show));
+    };
+    window.addEventListener('samanvitha:server-waking', handleWaking);
+    return () => window.removeEventListener('samanvitha:server-waking', handleWaking);
+  }, []);
 
   const addToast = useCallback(({ message, type = 'info', duration = 4000 }) => {
     const id = `toast_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -38,6 +48,20 @@ export function ToastProvider({ children }) {
         aria-live="polite"
         className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none"
       >
+        {/* Calm server waking notice (auto-dismissed when request completes) */}
+        {serverWaking && (
+          <div
+            className="pointer-events-auto flex items-start gap-3 p-4 rounded-xl border border-sand-300 bg-sand-100/95 text-charcoal-900 shadow-soft-md transition-all duration-300 animate-fade-in"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="w-4 h-4 mt-0.5 border-2 border-sage-600 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+            <p className="text-xs sm:text-sm font-medium leading-relaxed flex-1">
+              The server is waking up (free hosting). This can take up to a minute, please wait.
+            </p>
+          </div>
+        )}
+
         {toasts.map((t) => {
           const typeStyles = {
             success: 'bg-sage-50 text-sage-900 border-sage-300',
@@ -83,6 +107,23 @@ export function useToast() {
     throw new Error('useToast must be used within a ToastProvider');
   }
   return context;
+}
+
+/**
+ * Hook to observe whether a server request is currently in slow / cold-start waking state (>5s)
+ */
+export function useServerWaking() {
+  const [isWaking, setIsWaking] = useState(false);
+
+  useEffect(() => {
+    const handleWaking = (e) => {
+      setIsWaking(Boolean(e.detail?.show));
+    };
+    window.addEventListener('samanvitha:server-waking', handleWaking);
+    return () => window.removeEventListener('samanvitha:server-waking', handleWaking);
+  }, []);
+
+  return isWaking;
 }
 
 export default useToast;

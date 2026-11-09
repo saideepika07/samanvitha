@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.js';
+import { useServerWaking } from '../../hooks/useToast.js';
 import { authService } from '../../services/authService.js';
 import { MOCK_RESET_LINK } from '../../config/featureFlags.js';
 import { getDashboardPathForRole } from '../../routes/RoleRoute.jsx';
@@ -10,6 +11,7 @@ import { Mail, ArrowLeft, CheckCircle2, Sparkles, Send, Info } from 'lucide-reac
 
 export function ForgotPasswordPage() {
   const { user, isAuthenticated, loading: authLoading } = useAuth();
+  const isServerWaking = useServerWaking();
 
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
@@ -58,9 +60,14 @@ export function ForgotPasswordPage() {
       // Components must only call authService, never touch localStorage directly
       const result = await authService.requestPasswordReset(email);
 
+      if (!result.success && result.error) {
+        setError(result.error);
+        return;
+      }
+
       // Always display the same neutral message regardless of whether the email was found
       setSubmittedStatus({
-        message: result.message,
+        message: result.message || 'If an account exists for this email, reset instructions have been sent.',
         demoResetLink: result.demoResetLink,
         submittedEmail: email.trim().toLowerCase(),
       });
@@ -68,7 +75,7 @@ export function ForgotPasswordPage() {
       // Start 30-second cooldown on the send button
       setCooldown(30);
     } catch (err) {
-      setError('An unexpected error occurred while requesting password reset. Please try again.');
+      setError(err?.response?.data?.error || err?.message || 'An unexpected error occurred while requesting password reset. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -174,6 +181,12 @@ export function ForgotPasswordPage() {
           >
             {cooldown > 0 ? `Resend link (${cooldown}s)` : 'Send reset link'}
           </Button>
+          {loading && isServerWaking && (
+            <p className="text-xs text-charcoal-600 bg-sand-100/90 py-2.5 px-3 rounded-xl border border-sand-200 mt-2.5 text-center flex items-center justify-center gap-2 animate-fade-in">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              The server is waking up (free hosting). This can take up to a minute, please wait.
+            </p>
+          )}
         </div>
       </form>
 

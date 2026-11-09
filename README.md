@@ -231,6 +231,19 @@ To send real emails to your inbox using a free Gmail App Password:
 | `ADMIN_PASSWORD`| Default administrator seed password | `DemoPassword123!` |
 | `ADMIN_NAME` | Default administrator display name | `Admin Reviewer` |
 
+### 8.4. Free-Tier Hosting Limitations & Cold-Start Resilience
+
+In live demonstrations hosted on free cloud tiers (e.g., Render free web service tier):
+- **15-Minute Inactivity Sleep**: The free backend instance automatically spins down into an inactive sleep state after 15 minutes of zero traffic.
+- **Spin-Up Latency (Cold Start)**: The first request to a sleeping instance takes between 50 to 60 seconds while the container boots and establishes the MongoDB Atlas connection.
+- **Client-Side Resilience Architecture**:
+  1. **Wake-Up Ping**: On initial application load, the frontend silently dispatches a single background `GET /api/health` request once per page load (with zero polling and no persistent timers) to wake up the sleeping instance ahead of user interactions.
+  2. **Extended Timeout (70,000 ms)**: Default Axios timeout is set to 70,000 ms across all endpoints, providing adequate headroom for the full container spin-up cycle.
+  3. **Calm Waiting Indicator**: Any request taking longer than 5 seconds displays a calm notice (*"The server is waking up (free hosting). This can take up to a minute, please wait."*) in the toast area and next to the active form action button. The notice automatically dismisses upon request completion.
+  4. **Duplicate Submission Guard**: Form action buttons remain disabled in a spinning loading state during submission to prevent duplicate clicks while the server initializes.
+  5. **Safe Retry Semantics**: Safe, idempotent `GET` requests automatically retry once upon timeout or network failure. Non-idempotent `POST` requests (registration, match reservation, receipt acknowledgment, donation creation) are never automatically retried to prevent duplicate database records.
+  6. **Friendly Timeout Messages**: If a registration or mutation request times out, users receive reassuring contextual guidance (e.g., *"The request took too long. Your account may have been created. Try logging in with the same email, or register again after a minute."*) rather than raw technical error text.
+
 ---
 
 ## 9. Comprehensive Backend Documentation & Viva Runbook

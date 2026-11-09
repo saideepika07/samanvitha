@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.js';
-import { useToast } from '../../hooks/useToast.js';
+import { useToast, useServerWaking } from '../../hooks/useToast.js';
 import { getDashboardPathForRole } from '../../routes/RoleRoute.jsx';
 import { Button } from '../../components/common/Button.jsx';
 import { Input } from '../../components/common/Input.jsx';
@@ -13,6 +13,7 @@ import { LogIn, CheckCircle2, ShieldAlert, Sparkles, Key } from 'lucide-react';
 export function LoginPage() {
   const { user, isAuthenticated, loading: authLoading, login } = useAuth();
   const toast = useToast();
+  const isServerWaking = useServerWaking();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -60,12 +61,12 @@ export function LoginPage() {
         const targetPath = getDashboardPathForRole(result.data.role);
         navigate(targetPath, { replace: true });
       } else {
-        const errorMsg = 'Invalid email or password.';
+        const errorMsg = result.error || 'Invalid email or password.';
         setErrors({ general: errorMsg });
         toast.error(errorMsg);
       }
     } catch (err) {
-      const errorMsg = 'Invalid email or password.';
+      const errorMsg = err.response?.data?.error || err.message || 'Invalid email or password.';
       setErrors({ general: errorMsg });
       toast.error(errorMsg);
     } finally {
@@ -155,11 +156,18 @@ export function LoginPage() {
             type="submit"
             variant="primary"
             loading={loading}
+            disabled={loading}
             className="w-full justify-center py-3"
             icon={LogIn}
           >
             Sign In
           </Button>
+          {loading && isServerWaking && (
+            <p className="text-xs text-charcoal-600 bg-sand-100/90 py-2.5 px-3 rounded-xl border border-sand-200 mt-2.5 text-center flex items-center justify-center gap-2 animate-fade-in">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              The server is waking up (free hosting). This can take up to a minute, please wait.
+            </p>
+          )}
         </div>
       </form>
 

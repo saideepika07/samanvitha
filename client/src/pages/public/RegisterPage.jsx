@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.js';
-import { useToast } from '../../hooks/useToast.js';
+import { useToast, useServerWaking } from '../../hooks/useToast.js';
 import { ROLES, DONOR_ACCOUNT_TYPES, INSTITUTION_TYPES } from '../../config/roles.js';
 import { Button } from '../../components/common/Button.jsx';
 import { Input } from '../../components/common/Input.jsx';
@@ -13,6 +13,7 @@ import { Heart, Building, ShieldAlert, ArrowRight, Check, X } from 'lucide-react
 export function RegisterPage() {
   const { register } = useAuth();
   const toast = useToast();
+  const isServerWaking = useServerWaking();
   const navigate = useNavigate();
 
   const [role, setRole] = useState(ROLES.DONOR); // Only DONOR or INSTITUTION
@@ -376,11 +377,18 @@ export function RegisterPage() {
             type="submit"
             variant="primary"
             loading={loading}
+            disabled={loading}
             className="w-full justify-center py-3"
             icon={ArrowRight}
           >
             Create {role === ROLES.DONOR ? 'Donor' : 'Institution'} Account
           </Button>
+          {loading && isServerWaking && (
+            <p className="text-xs text-charcoal-600 bg-sand-100/90 py-2.5 px-3 rounded-xl border border-sand-200 mt-2.5 text-center flex items-center justify-center gap-2 animate-fade-in">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              The server is waking up (free hosting). This can take up to a minute, please wait.
+            </p>
+          )}
         </div>
       </form>
 

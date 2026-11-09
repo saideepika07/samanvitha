@@ -1,13 +1,19 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './hooks/AuthContext.jsx';
 import { ToastProvider } from './hooks/useToast.jsx';
 import ErrorBoundary from './components/common/ErrorBoundary.jsx';
 import AppRoutes from './routes/AppRoutes.jsx';
 import { USE_MOCK_DATA } from './config/featureFlags.js';
+import { pingServerHealth } from './services/api.js';
 import { AlertTriangle } from 'lucide-react';
 
 export function App() {
+  // 1. Silent wake-up ping: once per page load, ignore result, no keep-alive timer
+  useEffect(() => {
+    pingServerHealth();
+  }, []);
+
   return (
     <ErrorBoundary>
       <BrowserRouter>
